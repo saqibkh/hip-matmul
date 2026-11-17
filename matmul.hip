@@ -2411,6 +2411,11 @@ class MmtKernel_StreamK_256t_MSxNS_amdgcn_mfma_f32_16x16x16f16_shared_Kx2
   __device__ static int workgroup_atomic_increment(atomic_t *atomic) {
     __shared__ int workgroup_value;
     int tid = threadIdx.x;
+#ifdef FIXFENCE
+    // Every thread publishes its own earlier stores before thread 0 does the atomic.
+    __builtin_amdgcn_fence(__ATOMIC_RELEASE, "agent");
+    __builtin_amdgcn_s_barrier();
+#endif
     if (tid == 0) {
       // Thread0 fetches and increments the device-wide atomic.
       // This is a relaxed atomic, which is fine, as we provide the memory
@@ -2798,6 +2803,11 @@ class MmtKernel_StreamKTree_256t_MSxNS_amdgcn_mfma_f32_16x16x16f16_shared_Kx2
                                                  uint32_t value) {
     __shared__ int workgroup_value;
     int tid = threadIdx.x;
+#ifdef FIXFENCE
+    // Every thread publishes its own earlier stores before thread 0 does the atomic.
+    __builtin_amdgcn_fence(__ATOMIC_RELEASE, "agent");
+    __builtin_amdgcn_s_barrier();
+#endif
     if (tid == 0) {
       // Thread0 fetches and increments the device-wide atomic.
       // This is a relaxed atomic, which is fine, as we provide the memory
@@ -3180,6 +3190,11 @@ class
                                                  uint32_t value) {
     __shared__ int workgroup_value;
     int tid = threadIdx.x;
+#ifdef FIXFENCE
+    // Every thread publishes its own earlier stores before thread 0 does the atomic.
+    __builtin_amdgcn_fence(__ATOMIC_RELEASE, "agent");
+    __builtin_amdgcn_s_barrier();
+#endif
     if (tid == 0) {
       // Thread0 fetches and increments the device-wide atomic.
       // This is a relaxed atomic, which is fine, as we provide the memory
