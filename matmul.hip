@@ -133,6 +133,27 @@ void checkMmtResults(const void *A_data_void, const void *B_data_void,
   const TA *A_data = static_cast<const TA *>(A_data_void);
   const TB *B_data = static_cast<const TB *>(B_data_void);
   const TC *C_data = static_cast<const TC *>(C_data_void);
+  if (getenv("DIAG")) {
+    int nbad = 0, printed = 0;
+    for (int m_outer = 0; m_outer < s.outer.M; ++m_outer)
+      for (int n_outer = 0; n_outer < s.outer.N; ++n_outer) {
+        float c = 0.f;
+        for (int k_outer = 0; k_outer < s.outer.K; ++k_outer)
+          for (int k_tile = 0; k_tile < s.tile.K; ++k_tile) {
+            TA a = A_data[offset(A_shape(s), m_outer, k_outer, 0, k_tile)];
+            TB b = B_data[offset(B_shape(s), n_outer, k_outer, 0, k_tile)];
+            c += static_cast<TC>(a) * static_cast<TC>(b);
+          }
+        TC actual = C_data[offset(C_shape(s), m_outer, n_outer, 0, 0)];
+        if (actual != static_cast<TC>(c)) {
+          ++nbad;
+          if (printed++ < 30)
+            fprintf(stderr, "DIAG outer %dx%dx%d block (%d,%d) elem(0,0): actual %g expected %g\n", s.outer.M, s.outer.N, s.outer.K, m_outer, n_outer, (double)actual, (double)c);
+        }
+      }
+    fprintf(stderr, "DIAG outer %dx%dx%d: %d/%d blocks wrong at elem(0,0)\n", s.outer.M, s.outer.N, s.outer.K, nbad, s.outer.M * s.outer.N);
+    if (getenv("DIAG_NOABORT")) return;
+  }
   // This reference code is slow. To make the checks not too slow on
   // large matmuls, we only check the 4 corner tiles.
   for (int m_outer : {0, s.outer.M - 1}) {
@@ -249,7 +270,9 @@ void check(const MmtKernel &kernel) {
                      MNKShape{1, 1, 5}, MNKShape{2, 2, 2}, MNKShape{2, 3, 4},
                      MNKShape{5, 2, 3}, MNKShape{1, 1, 10}, MNKShape{4, 4, 8},
                      MNKShape{305, 1, 1}, MNKShape{20, 20, 20}}) {
+    if (getenv("ONLY20") && !(o.M == 20 && o.N == 20)) continue;
     check(kernel, o);
+    if (getenv("TWICE") && o.M == 20 && o.N == 20) check(kernel, o);
   }
   std::printf("OK\n");
 }

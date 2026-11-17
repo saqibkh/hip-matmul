@@ -21,14 +21,13 @@ jobs:
           cuda-toolkit: none
           rocm: "7.2"
       - run: sudo apt-get install -y comgr hsa-rocr
-      - name: Reproducer
+      - run: hipcc matmul.hip -std=c++20 -O2 --offload-arch=gfx942 -o hm
+      - name: A. only 20x20x20, diag, no abort
         run: |
-          for O in O0 O2; do
-            echo "=== -$O"
-            hipcc f16repro/repro.hip -std=c++20 -$O --offload-arch=gfx942 -o repro_$O
-            vgpu run ./repro_$O </dev/null 2>&1 | tail -60
-          done
-      - name: Original at 20x20x20 only, FILTER
+          M=256 N=256 K=256 FIXED_ITERATIONS=1 ONLY20=1 DIAG=1 DIAG_NOABORT=1 TWICE=1 FILTER='mfma_f32_16x16x16f16_shared_Kx2<8, 8>' vgpu run ./hm </dev/null 2>&1 | grep -E "DIAG|numerical|OK" | head -80 || true
+      - name: B. all shapes, diag, no abort
         run: |
-          hipcc matmul.hip -std=c++20 -O2 --offload-arch=gfx942 -o build_hm
-          M=256 N=256 K=256 FIXED_ITERATIONS=1 FILTER='mfma_f32_16x16x16f16_shared_Kx2<8, 8>' vgpu run ./build_hm </dev/null 2>&1 | tail -15 || true
+          M=256 N=256 K=256 FIXED_ITERATIONS=1 DIAG=1 DIAG_NOABORT=1 FILTER='mfma_f32_16x16x16f16_shared_Kx2<8, 8>' vgpu run ./hm </dev/null 2>&1 | grep -E "DIAG outer .*blocks wrong|numerical|OK" | head -80 || true
+      - name: C. same, other kernel (non-Kx2 shared) for comparison
+        run: |
+          M=256 N=256 K=256 FIXED_ITERATIONS=1 ONLY20=1 DIAG=1 DIAG_NOABORT=1 FILTER='mfma_f32_16x16x16f16_shared<8, 8>' vgpu run ./hm </dev/null 2>&1 | grep -E "DIAG|numerical|OK" | head -40 || true
