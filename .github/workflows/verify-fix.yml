@@ -1,0 +1,40 @@
+name: verify streamk fix
+on:
+  push:
+    branches: [ verify-streamk-fix ]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - uses: pantheongpu/setup-pantheonsim@deff5781e8adfd83dec98dd5242dcbc96a564773 # v0.1.10
+        with:
+          gpu: amd/mi300x
+          cuda-toolkit: none
+          rocm: "7.2"
+      - run: sudo apt-get install -y comgr hsa-rocr
+      - name: build original and fixed
+        run: |
+          git show HEAD~2:matmul.hip > matmul_orig.hip
+          git diff --stat HEAD~2 HEAD~1
+          hipcc matmul_orig.hip -std=c++20 -O2 --offload-arch=gfx942 -o hm_orig
+          hipcc matmul.hip -std=c++20 -O2 --offload-arch=gfx942 -o hm_fix
+      - name: original (expected to abort)
+        continue-on-error: true
+        run: |
+          M=256 N=256 K=256 FIXED_ITERATIONS=1 FILTER='StreamKTree_256t_MSxNS_amdgcn_mfma_f32_16x16x16f16_shared_Kx2<8, 8>' vgpu run ./hm_orig </dev/null 2>&1 | tee orig.log | grep -E "numerical|OK$|Abort" | cut -c1-150
+      - name: fixed (must pass every shape)
+        run: |
+          set -o pipefail
+          M=256 N=256 K=256 FIXED_ITERATIONS=1 FILTER='StreamKTree' vgpu run ./hm_fix </dev/null 2>&1 | tee fix.log | grep -E "numerical|OK$|Abort|StreamKTree" | cut -c1-150
+          test "$(grep -c 'Checking correctness... OK' fix.log)" -ge 1
+          ! grep -Ei "numerical error|VirtualGPU error|Abort" fix.log
