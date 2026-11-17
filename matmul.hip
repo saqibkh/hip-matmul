@@ -2731,8 +2731,17 @@ class MmtKernel_StreamKTree_256t_MSxNS_amdgcn_mfma_f32_16x16x16f16_shared_Kx2
         // Reset atomic counters for the next kernel launch.
         atomic_t *atomic_counter_base = reinterpret_cast<atomic_t *>(
             aux_bytes + cooperating_workgroup_start * 2 * sizeof(atomic_t));
+#ifdef FIXRESET
+        // Only clear the counters this tile actually used (see F16-FINDINGS.md).
+        for (int lvl = 0; (1 << lvl) < cooperating_workgroup_count; ++lvl) {
+          int bit = 1 << lvl;
+          for (int p = 0; (p | bit) < cooperating_workgroup_count; p += bit << 1)
+            atomic_counter_base[2 * p + (tile_idx & 1)] = 0;
+        }
+#else
         for (int i = 0; i < cooperating_workgroup_count; ++i)
           atomic_counter_base[2 * i + (tile_idx & 1)] = 0;
+#endif
       }
 
       iter = tile_iter_end;

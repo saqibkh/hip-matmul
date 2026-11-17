@@ -13,12 +13,12 @@ static int ceil_div(int a, int b) { return (a + b - 1) / b; }
 struct Emu {
   int M, N, K; int MaxWG = 304;
   int wgc, tiles, per_tile; vector<uint32_t> ctr; vector<double> loc, C; vector<double> part; // part[tile*K+k]
-  bool oob = false;
+  bool oob = false; vector<int> owner; int alias_cnt=0; int alias_t1=-1, alias_t2=-1, alias_idx=-1;
   void init(int M_, int N_, int K_, mt19937 &r) {
     M = M_; N = N_; K = K_; tiles = M * N;
     int64_t ti = (int64_t)M * N * K; wgc = min<int64_t>(MaxWG, ti);
     per_tile = 1 + ceil_div(wgc, tiles);
-    ctr.assign(round_up(wgc * 2) + 64, 0); loc.assign((size_t)per_tile * tiles, 0); C.assign(tiles, -12345.0);
+    ctr.assign(round_up(wgc * 2) + 64, 0); owner.assign(ctr.size(), -1); alias_cnt=0; loc.assign((size_t)per_tile * tiles, 0); C.assign(tiles, -12345.0);
     part.resize((size_t)tiles * K); for (auto &p : part) p = (int)(r() % 11) - 5;
     oob = false;
   }
@@ -50,7 +50,8 @@ struct Emu {
           if ((parent | bit) >= cc) continue;
           L(lai) = acc;
           int nudge = tile_idx & 1;
-          uint32_t &c = Ctr(cs * 2 + 2 * parent + nudge);
+          int ci = cs * 2 + 2 * parent + nudge; if (owner[ci] != -1 && owner[ci] != tile_idx) { if(!alias_cnt){alias_t1=owner[ci];alias_t2=tile_idx;alias_idx=ci;} ++alias_cnt; } owner[ci] = tile_idx;
+          uint32_t &c = Ctr(ci);
           uint32_t old = c; c |= bit;
           if (!(old & bit)) { store_final = false; break; }
           acc += L(slai);
@@ -58,12 +59,16 @@ struct Emu {
       }
       if (store_final) {
         C[tile_idx] = acc;
+#ifdef FIXRESET
+        for (int lvl = 0; (1 << lvl) < cc; ++lvl) { int bit = 1 << lvl; for (int p = 0; (p | bit) < cc; p += bit << 1) Ctr(cs * 2 + 2 * p + (tile_idx & 1)) = 0; }
+#else
         for (int i = 0; i < cc; ++i) Ctr(cs * 2 + 2 * i + (tile_idx & 1)) = 0;
+#endif
       }
       iter = tile_iter_end;
     }
   }
-  int check() { int bad = 0; for (int t = 0; t < tiles; ++t) { double e = 0; for (int k = 0; k < K; ++k) e += part[(size_t)t * K + k]; if (C[t] != e) ++bad; } return bad; }
+  bool dbg=false; int check() { int bad = 0; for (int t = 0; t < tiles; ++t) { double e = 0; for (int k = 0; k < K; ++k) e += part[(size_t)t * K + k]; if (C[t] != e) { ++bad; if (dbg && bad<=4) { int ts=t*K; int cs=ceil_div((ts+1)*wgc,tiles*K)-1, ce=ceil_div((ts+K)*wgc,tiles*K); printf("  tile %d wrong: got %g want %g, group [%d,%d) cc=%d\n", t, C[t], e, cs, ce, ce-cs);} } } return bad; }
 };
 int main() {
   mt19937 r(1);
@@ -75,9 +80,10 @@ int main() {
       vector<int> ord(e.wgc); for (int i = 0; i < e.wgc; ++i) ord[i] = i;
       if (mode == 1) reverse(ord.begin(), ord.end()); if (mode == 2) shuffle(ord.begin(), ord.end(), r);
       for (int w : ord) e.run_wg(w);
-      int b = e.check(); oobs += e.oob;
+      e.dbg = (mode==2 && rep<2 && s[0]==20); int b = e.check(); oobs += e.oob;
       (mode == 0 ? nbadmax_asc : mode == 1 ? nbad_desc : nbad_rand) = max(mode == 0 ? nbadmax_asc : mode == 1 ? nbad_desc : nbad_rand, b);
     }
+    printf("alias events in last run: %d (first: tiles %d and %d share counter %d)\n", e.alias_cnt, e.alias_t1, e.alias_t2, e.alias_idx);
     printf("shape %dx%dx%d wgc=%d per_tile=%d: wrong tiles asc=%d desc=%d random(max of 200)=%d, out-of-bounds in %d runs\n", s[0], s[1], s[2], e.wgc, e.per_tile, nbadmax_asc, nbad_desc, nbad_rand, oobs);
   }
 }

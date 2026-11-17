@@ -21,5 +21,13 @@ jobs:
           cuda-toolkit: none
           rocm: "7.2"
       - run: sudo apt-get install -y comgr hsa-rocr
-      - name: CPU emulation of the StreamKTree control flow
-        run: g++ -std=c++20 -O1 f16repro/emu.cc -o emu && ./emu
+      - run: |
+          hipcc matmul.hip -std=c++20 -O2 --offload-arch=gfx942 -o hm
+          hipcc matmul.hip -std=c++20 -O2 -DFIXRESET --offload-arch=gfx942 -o hm_fix
+      - name: original vs counter-reset fix, full check
+        run: |
+          for B in hm hm_fix; do echo "##### $B"
+          M=256 N=256 K=256 FIXED_ITERATIONS=1 ONLY20=1 DIAG=1 DIAG_NOABORT=1 FILTER='StreamKTree_256t_MSxNS_amdgcn_mfma_f32_16x16x16f16_shared_Kx2<8, 8>' vgpu run ./$B </dev/null 2>&1 | grep -E "tile MxNxK|DIAG outer .*blocks wrong|numerical|OK$" | cut -c1-120 || true
+          echo "-- all shapes, abort on mismatch:"
+          M=256 N=256 K=256 FIXED_ITERATIONS=1 FILTER='StreamKTree_256t_MSxNS_amdgcn_mfma_f32_16x16x16f16_shared_Kx2<8, 8>' vgpu run ./$B </dev/null 2>&1 | grep -E "numerical|OK$|Abort" | cut -c1-150 || true
+          done
